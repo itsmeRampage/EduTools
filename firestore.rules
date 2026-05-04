@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isProfessor() {
+      return isSignedIn() && exists(/databases/$(database)/documents/professors/$(request.auth.uid));
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /professors/{professorId} {
+      allow get, list: if isSignedIn();
+      allow create: if isOwner(professorId);
+      allow update, delete: if isOwner(professorId);
+
+      match /students/{studentId} {
+        // Public get allowed for Student Portal access via custom ID/Key logic
+        allow get: if true; 
+        allow list, create, delete: if isOwner(professorId);
+        // Allow student portal to update its own security and profile data within professor's doc
+        allow update: if isOwner(professorId) || 
+                      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['portalPassword', 'photoUrl', 'lastSecurityReset', 'lastSecurityUpdate', 'prospectusData']));
+      }
+    }
+
+    match /students/{studentId} {
+      allow get: if true; 
+      allow list: if isSignedIn();
+      allow create: if isProfessor();
+      // Allow the student portal to update its own security and profile data in the global registry
+      allow update: if isProfessor() || 
+                    (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['portalPassword', 'photoUrl', 'lastSecurityReset', 'lastSecurityUpdate']));
+      allow delete: if isProfessor();
+    }
+
+    match /programs/{programId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isProfessor();
+    }
+
+    match /courses/{courseId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isProfessor();
+    }
+
+    match /schedules/{scheduleId} {
+      allow get, list: if true;
+      allow create, update, delete: if isProfessor();
+    }
+
+    match /enrollments/{enrollmentId} {
+      allow get, list: if true;
+      allow create, delete: if true;
+      allow update: if isProfessor();
+    }
+  }
+}
